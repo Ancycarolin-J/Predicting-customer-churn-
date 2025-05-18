@@ -7,6 +7,9 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 # Set up Streamlit page
@@ -47,29 +50,69 @@ if uploaded_file:
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Model training
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train_scaled, y_train)
+    # Define models
+    models = {
+        "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+        "Logistic Regression": LogisticRegression(max_iter=1000),
+        "Support Vector Machine": SVC(probability=True),
+        "Decision Tree": DecisionTreeClassifier(random_state=42)
+    }
 
-    # Prediction
-    y_pred = model.predict(X_test_scaled)
+    results = {}
+    for name, model in models.items():
+        model.fit(X_train_scaled, y_train)
+        y_pred = model.predict(X_test_scaled)
+        results[name] = {
+            'model': model,
+            'accuracy': accuracy_score(y_test, y_pred),
+            'report': classification_report(y_test, y_pred),
+            'conf_matrix': confusion_matrix(y_test, y_pred)
+        }
 
-    # Results
+    # Evaluation
     st.subheader("Model Evaluation")
-    st.write("*Accuracy:*", accuracy_score(y_test, y_pred))
-    st.write("*Confusion Matrix:*")
-    st.write(confusion_matrix(y_test, y_pred))
+    for name, result in results.items():
+        st.markdown(f"### {name}")
+        st.write("*Accuracy:*", result['accuracy'])
+        st.write("*Confusion Matrix:*")
+        st.write(result['conf_matrix'])
+        st.write("*Classification Report:*")
+        st.text(result['report'])
 
-    st.write("*Classification Report:*")
-    st.text(classification_report(y_test, y_pred))
-
-    # Feature Importance
-    st.subheader("Top 10 Feature Importances")
-    importances = pd.Series(model.feature_importances_, index=X.columns)
+    # Feature Importance (Random Forest)
+    st.subheader("Top 10 Feature Importances (Random Forest)")
+    importances = pd.Series(models["Random Forest"].feature_importances_, index=X.columns)
     top_features = importances.nlargest(10).sort_values()
 
     fig, ax = plt.subplots()
     top_features.plot(kind='barh', color='skyblue', ax=ax)
-    ax.set_title('Top 10 Important Features for Customer Churn')
+    ax.set_title('Top 10 Important Features')
     ax.set_xlabel('Importance Score')
     st.pyplot(fig)
+
+    # Custom Input Prediction
+    st.subheader("Make a Custom Prediction")
+    selected_model_name = st.selectbox("Select Model", list(models.keys()))
+    selected_model = models[selected_model_name]
+
+    input_data = {}
+    for col in X.columns:
+        if col in label_encoders:
+            options = label_encoders[col].classes_.tolist()
+            input_data[col] = st.selectbox(f"{col}", options)
+        else:
+            input_data[col] = st.number_input(f"{col}", value=float(df[col].mean()))
+
+    # Encode and scale input
+    input_df = pd.DataFrame([input_data])
+    for col in label_encoders:
+        input_df[col] = label_encoders[col].transform(input_df[col])
+
+    input_scaled = scaler.transform(input_df)
+
+    prediction = selected_model.predict(input_scaled)[0]
+    prediction_proba = selected_model.predict_proba(input_scaled)[0]
+
+    st.write("### Prediction Result:")
+    st.write("*Churn:*", "Yes" if prediction == 1 else "No")
+    st.write("*Probability of Churn:*", round(prediction_proba[1]*100, 2), "%")
