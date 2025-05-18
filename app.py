@@ -103,10 +103,16 @@ if uploaded_file:
         else:
             input_data[col] = st.number_input(f"{col}", value=float(df[col].mean()))
 
-    # Encode and scale input
+    # Encode and scale input safely
     input_df = pd.DataFrame([input_data])
     for col in label_encoders:
-        input_df[col] = label_encoders[col].transform(input_df[col])
+        if col in input_df.columns:
+            try:
+                input_df[col] = label_encoders[col].transform(input_df[col])
+            except Exception as e:
+                st.error(f"Encoding error in column '{col}': {e}")
+        else:
+            st.warning(f"Column '{col}' missing in input. Skipping encoding.")
 
     input_scaled = scaler.transform(input_df)
 
