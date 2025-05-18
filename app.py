@@ -5,78 +5,71 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import (
-    confusion_matrix, roc_curve, auc
-)
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 # Set up Streamlit page
-st.set_page_config(page_title="Churn Prediction App", layout="centered")
+st.set_page_config(page_title="Customer Churn Prediction", layout="wide")
 st.title("Customer Churn Prediction App")
 
-# Generate or simulate a dataset
-@st.cache_data
-def load_data(n_samples=1000):
-    np.random.seed(42)
-    data = {
-        'Tenure': np.random.randint(1, 72, n_samples),
-        'MonthlyCharges': np.round(np.random.uniform(20.0, 120.0, n_samples), 2),
-        'TotalCharges': np.round(np.random.uniform(100.0, 8000.0, n_samples), 2),
-        'Contract': np.random.choice(['Month-to-month', 'One year', 'Two year'], n_samples),
-        'PaymentMethod': np.random.choice(['Electronic check', 'Mailed check', 'Bank transfer', 'Credit card'], n_samples),
-        'InternetService': np.random.choice(['DSL', 'Fiber optic', 'No'], n_samples),
-        'Churn': np.random.choice([0, 1], n_samples, p=[0.73, 0.27])
-    }
-    return pd.DataFrame(data)
+# File upload
+uploaded_file = st.file_uploader("Upload your CSV file for churn prediction", type=["csv"])
 
-df = load_data()
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.success("Dataset uploaded successfully!")
+    st.write("First 5 rows of the dataset:")
+    st.dataframe(df.head())
 
-# Preprocessing
-df = pd.get_dummies(df, columns=['Contract', 'PaymentMethod', 'InternetService'])
-X = df.drop('Churn', axis=1)
-y = df['Churn']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Drop 'customerID' if present
+    if 'customerID' in df.columns:
+        df.drop('customerID', axis=1, inplace=True)
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+    # Convert TotalCharges to numeric
+    df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
+    df.dropna(inplace=True)
 
-# Models
-log_model = LogisticRegression()
-log_model.fit(X_train_scaled, y_train)
-y_log_pred = log_model.predict(X_test_scaled)
-y_log_prob = log_model.predict_proba(X_test_scaled)[:, 1]
+    # Label Encoding for categorical columns
+    label_encoders = {}
+    for col in df.select_dtypes(include='object').columns:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col])
+        label_encoders[col] = le
 
-lin_model = LinearRegression()
-lin_model.fit(X_train_scaled, y_train)
-y_lin_pred = lin_model.predict(X_test_scaled)
+    # Feature and Target split
+    X = df.drop('Churn', axis=1)
+    y = df['Churn']
 
-# --- Streamlit Visualizations ---
-st.subheader("Confusion Matrix - Logistic Regression")
-cm = confusion_matrix(y_test, y_log_pred)
-fig, ax = plt.subplots()
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-ax.set_xlabel("Predicted")
-ax.set_ylabel("Actual")
-st.pyplot(fig)
+    # Split and scale
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-st.subheader("ROC Curve - Logistic Regression")
-fpr, tpr, _ = roc_curve(y_test, y_log_prob)
-roc_auc = auc(fpr, tpr)
+    # Model training
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train_scaled, y_train)
 
-fig2, ax2 = plt.subplots()
-ax2.plot(fpr, tpr, label=f'AUC = {roc_auc:.2f}')
-ax2.plot([0, 1], [0, 1], linestyle='--', color='gray')
-ax2.set_title("ROC Curve")
-ax2.set_xlabel("False Positive Rate")
-ax2.set_ylabel("True Positive Rate")
-ax2.legend()
-st.pyplot(fig2)
+    # Prediction
+    y_pred = model.predict(X_test_scaled)
 
-st.subheader("Histogram of Predicted Churn Scores - Linear Regression")
-fig3, ax3 = plt.subplots()
-ax3.hist(y_lin_pred, bins=30, color='skyblue', edgecolor='black')
-ax3.set_xlabel("Predicted Churn Score")
-ax3.set_ylabel("Frequency")
-st.pyplot(fig3)
+    # Results
+    st.subheader("Model Evaluation")
+    st.write("*Accuracy:*", accuracy_score(y_test, y_pred))
+    st.write("*Confusion Matrix:*")
+    st.write(confusion_matrix(y_test, y_pred))
+
+    st.write("*Classification Report:*")
+    st.text(classification_report(y_test, y_pred))
+
+    # Feature Importance
+    st.subheader("Top 10 Feature Importances")
+    importances = pd.Series(model.feature_importances_, index=X.columns)
+    top_features = importances.nlargest(10).sort_values()
+
+    fig, ax = plt.subplots()
+    top_features.plot(kind='barh', color='skyblue', ax=ax)
+    ax.set_title('Top 10 Important Features for Customer Churn')
+    ax.set_xlabel('Importance Score')
+    st.pyplot(fig)
